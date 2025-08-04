@@ -21,7 +21,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: arn:aws:iam::885812045782:role/awscopilot-oidc
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: us-east-1
       
       - name: Login to Amazon ECR
         id: login-ecr
