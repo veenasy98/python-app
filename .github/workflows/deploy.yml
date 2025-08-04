@@ -42,21 +42,25 @@ jobs:
       
       - name: Install AWS Copilot CLI
         run: |
-          # Remove existing copilot directory if it exists
-          rm -rf copilot-cli-temp
-          # Download to a temporary file
-          curl -Lo copilot-cli-temp https://github.com/aws/copilot-cli/releases/latest/download/copilot-linux
-          chmod +x copilot-cli-temp
-          sudo mv copilot-cli-temp /usr/local/bin/copilot
+          curl -Lo copilot-cli https://github.com/aws/copilot-cli/releases/latest/download/copilot-linux
+          chmod +x copilot-cli
+          sudo mv copilot-cli /usr/local/bin/copilot
           copilot --version
       
       - name: Initialize and deploy with AWS Copilot
         run: |
-          # Initialize the application if it doesn't exist
-          copilot app init fastapi-app --domain fastapi-app.example.com --resource-tags project=fastapi-demo || true
+          # Debug information
+          echo "Current directory: $(pwd)"
+          ls -la
           
-          # Check if environment exists, create if it doesn't
-          copilot env show prod || copilot env init --name prod --profile default --default-config
+          # Initialize the application with explicit workspace
+          copilot app init fastapi-app --resource-tags project=fastapi-demo
+          
+          # Initialize the environment
+          copilot env init --name prod --profile default --default-config
+          
+          # Initialize the service using the manifest
+          copilot svc init --name fastapi-svc --svc-type "Load Balanced Web Service" --dockerfile ./Dockerfile
           
           # Deploy the service
           copilot svc deploy --name fastapi-svc --env prod
