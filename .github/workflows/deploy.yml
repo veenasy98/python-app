@@ -53,7 +53,7 @@ jobs:
       - name: Initialize and deploy with AWS Copilot
         run: |
           # Initialize the application if it doesn't exist
-          copilot app init --domain fastapi-app --resource-tags project=fastapi-demo || true
+          copilot app init --name fastapi-app --domain fastapi-app.example.com --resource-tags project=fastapi-demo || true
           
           # Check if environment exists, create if it doesn't
           copilot env show --name prod || copilot env init --name prod --profile default --default-config

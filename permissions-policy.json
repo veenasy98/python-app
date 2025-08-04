@@ -11,7 +11,9 @@
         "ecr:InitiateLayerUpload",
         "ecr:UploadLayerPart",
         "ecr:CompleteLayerUpload",
-        "ecr:PutImage"
+        "ecr:PutImage",
+        "ecr:DescribeRepositories",
+        "ecr:CreateRepository"
       ],
       "Resource": "*"
     },
@@ -51,9 +53,11 @@
       "Effect": "Allow",
       "Action": [
         "ssm:GetParameters",
-        "ssm:GetParameter"
+        "ssm:GetParameter",
+        "ssm:GetParametersByPath",
+        "ssm:PutParameter"
       ],
-      "Resource": "arn:aws:ssm:*:*:parameter/copilot/*"
+      "Resource": "*"
     },
     {
       "Effect": "Allow",
@@ -76,6 +80,16 @@
       "Effect": "Allow",
       "Action": [
         "application-autoscaling:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "route53:ListHostedZones",
+        "route53:GetHostedZone",
+        "route53:ListResourceRecordSets",
+        "route53:ChangeResourceRecordSets"
       ],
       "Resource": "*"
     }
