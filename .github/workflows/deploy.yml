@@ -9,6 +9,10 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  AWS_ROLE_ARN: arn:aws:iam::885812045782:role/awscopilot-oidc
+  AWS_REGION: us-east-1
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -20,8 +24,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: arn:aws:iam::885812045782:role/awscopilot-oidc
-          aws-region: us-east-1
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
       
       - name: Create ECR repository if it doesn't exist
         run: |
@@ -56,8 +60,8 @@ jobs:
           # Initialize the application with explicit workspace
           copilot app init fastapi-app --resource-tags project=fastapi-demo
           
-          # Initialize the environment
-          copilot env init --name prod --profile default --default-config
+          # Initialize the environment without profile flag
+          copilot env init --name prod --default-config
           
           # Initialize the service using the manifest
           copilot svc init --name fastapi-svc --svc-type "Load Balanced Web Service" --dockerfile ./Dockerfile
