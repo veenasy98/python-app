@@ -1,4 +1,4 @@
-name: Deploy to AWS ECS
+name: Deploy to AWS ECS with Copilot
 
 on:
   push:
@@ -29,37 +29,131 @@ jobs:
           role-to-assume: arn:aws:iam::885812045782:role/awscopilot-oidc
           aws-region: ${{ env.AWS_REGION }}
       
+      - name: Verify AWS credentials
+        run: |
+          aws sts get-caller-identity
+          echo "AWS credentials successfully configured"
+      
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
       
+      - name: Get ECR repository URI
+        id: ecr-repo
+        run: |
+          # Check if repository exists
+          if ! aws ecr describe-repositories --repository-names ${{ env.APP_NAME }} &>/dev/null; then
+            echo "Creating ECR repository ${{ env.APP_NAME }}"
+            aws ecr create-repository --repository-name ${{ env.APP_NAME }}
+          fi
+          
+          # Get repository URI
+          REPO_URI=$(aws ecr describe-repositories --repository-names ${{ env.APP_NAME }} --query 'repositories[0].repositoryUri' --output text)
+          echo "Repository URI: $REPO_URI"
+          echo "repo_uri=$REPO_URI" >> $GITHUB_OUTPUT
+      
       - name: Build and push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Create ECR repository if needed
-          aws ecr describe-repositories --repository-names ${{ env.APP_NAME }} || aws ecr create-repository --repository-name ${{ env.APP_NAME }}
+          echo "Building Docker image..."
+          docker build -t $ECR_REGISTRY/${{ env.APP_NAME }}:$IMAGE_TAG .
           
-          # Build and push image
-          docker build -t $ECR_REGISTRY/${{ env.APP_NAME }}:${{ github.sha }} .
-          docker push $ECR_REGISTRY/${{ env.APP_NAME }}:${{ github.sha }}
+          echo "Pushing Docker image with tag: $IMAGE_TAG"
+          docker push $ECR_REGISTRY/${{ env.APP_NAME }}:$IMAGE_TAG
+          
+          echo "Tagging as latest..."
+          docker tag $ECR_REGISTRY/${{ env.APP_NAME }}:$IMAGE_TAG $ECR_REGISTRY/${{ env.APP_NAME }}:latest
+          docker push $ECR_REGISTRY/${{ env.APP_NAME }}:latest
+          
+          echo "Image successfully pushed to ECR"
       
       - name: Install AWS Copilot CLI
         run: |
+          echo "Installing AWS Copilot CLI..."
           curl -Lo copilot-cli https://github.com/aws/copilot-cli/releases/latest/download/copilot-linux
           chmod +x copilot-cli
           sudo mv copilot-cli /usr/local/bin/copilot
+          copilot --version
       
-      - name: Deploy with AWS Copilot
+      - name: Initialize Copilot application
         run: |
-          # Initialize app if it doesn't exist
-          copilot app init ${{ env.APP_NAME }} --resource-tags project=fastapi-demo || true
+          echo "Checking if application exists..."
+          if ! copilot app ls 2>/dev/null | grep -q "${{ env.APP_NAME }}"; then
+            echo "Initializing application ${{ env.APP_NAME }}"
+            copilot app init ${{ env.APP_NAME }} --resource-tags project=fastapi-demo
+          else
+            echo "Application ${{ env.APP_NAME }} already exists"
+          fi
+      
+      - name: Initialize and deploy environment
+        run: |
+          echo "Checking if environment exists..."
+          if ! copilot env ls --app ${{ env.APP_NAME }} 2>/dev/null | grep -q "${{ env.ENV_NAME }}"; then
+            echo "Initializing environment ${{ env.ENV_NAME }}"
+            copilot env init --name ${{ env.ENV_NAME }} \
+                            --app ${{ env.APP_NAME }} \
+                            --profile default \
+                            --default-config
+            
+            echo "Deploying environment ${{ env.ENV_NAME }}"
+            copilot env deploy --name ${{ env.ENV_NAME }} \
+                              --app ${{ env.APP_NAME }}
+          else
+            echo "Environment ${{ env.ENV_NAME }} already exists"
+          fi
+      
+      - name: Verify environment status
+        run: |
+          echo "Verifying environment status..."
+          copilot env show --name ${{ env.ENV_NAME }} --app ${{ env.APP_NAME }}
+      
+      - name: Deploy service
+        run: |
+          echo "Checking if service exists..."
+          if ! copilot svc ls --app ${{ env.APP_NAME }} 2>/dev/null | grep -q "${{ env.SVC_NAME }}"; then
+            echo "Service doesn't exist yet, will be created during deployment"
+          else
+            echo "Service ${{ env.SVC_NAME }} already exists"
+          fi
           
-          # Initialize environment if it doesn't exist
-          copilot env init --name ${{ env.ENV_NAME }} --app ${{ env.APP_NAME }} --default-config || true
+          echo "Deploying service ${{ env.SVC_NAME }} with manifest from repository"
+          copilot svc deploy --name ${{ env.SVC_NAME }} \
+                            --env ${{ env.ENV_NAME }} \
+                            --app ${{ env.APP_NAME }} \
+                            --tag ${{ github.sha }}
+      
+      - name: Show service info
+        if: success()
+        run: |
+          echo "Deployment successful! Service information:"
+          copilot svc show --name ${{ env.SVC_NAME }} \
+                          --app ${{ env.APP_NAME }} \
+                          --env ${{ env.ENV_NAME }}
           
-          # Initialize service if it doesn't exist
-          copilot svc init --name ${{ env.SVC_NAME }} --app ${{ env.APP_NAME }} --svc-type "Load Balanced Web Service" --dockerfile ./Dockerfile || true
+          echo "Service endpoint:"
+          copilot svc show --name ${{ env.SVC_NAME }} \
+                          --app ${{ env.APP_NAME }} \
+                          --env ${{ env.ENV_NAME }} \
+                          --json | jq -r '.routes[0].url'
+      
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "Deployment failed. Collecting debug information..."
           
-          # Deploy the service
-          copilot svc deploy --name ${{ env.SVC_NAME }} --env ${{ env.ENV_NAME }} --app ${{ env.APP_NAME }}
+          echo "AWS Copilot version:"
+          copilot --version
+          
+          echo "Application list:"
+          copilot app ls || echo "Failed to list applications"
+          
+          echo "Environment list:"
+          copilot env ls --app ${{ env.APP_NAME }} || echo "Failed to list environments"
+          
+          echo "Service list:"
+          copilot svc ls --app ${{ env.APP_NAME }} || echo "Failed to list services"
+          
+          echo "CloudFormation stacks:"
+          aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE || echo "Failed to list CloudFormation stacks"
