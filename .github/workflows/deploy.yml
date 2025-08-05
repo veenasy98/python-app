@@ -38,44 +38,38 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Create ECR repository if it doesn't exist
-          aws ecr describe-repositories --repository-names ${{ env.APP_NAME }} || aws ecr create-repository --repository-name ${{ env.APP_NAME }}
+          aws ecr describe-repositories --repository-names ${{ env.APP_NAME }} || \
+          aws ecr create-repository --repository-name ${{ env.APP_NAME }}
           
-          # Build and push image
           docker build -t $ECR_REGISTRY/${{ env.APP_NAME }}:$IMAGE_TAG .
           docker push $ECR_REGISTRY/${{ env.APP_NAME }}:$IMAGE_TAG
-          
-          # Tag as latest
           docker tag $ECR_REGISTRY/${{ env.APP_NAME }}:$IMAGE_TAG $ECR_REGISTRY/${{ env.APP_NAME }}:latest
           docker push $ECR_REGISTRY/${{ env.APP_NAME }}:latest
       
       - name: Install AWS Copilot CLI
         run: |
-          curl -Lo copilot-cli https://github.com/aws/copilot-cli/releases/latest/download/copilot-linux
-          chmod +x copilot-cli
-          sudo mv copilot-cli /usr/local/bin/copilot
+          curl -Lo copilot https://github.com/aws/copilot-cli/releases/latest/download/copilot-linux
+          chmod +x copilot
+          sudo mv copilot /usr/local/bin/copilot
       
-      - name: Setup Copilot workspace
+      - name: Setup and deploy with Copilot
         run: |
-          # Create workspace file to associate directory with application
-          mkdir -p .copilot
-          echo "{\"application\": \"${{ env.APP_NAME }}\"}" > .copilot/.workspace
-      
-      - name: Deploy with Copilot
-        run: |
-          # Initialize app if it doesn't exist
-          copilot app ls | grep -q "${{ env.APP_NAME }}" || copilot app init ${{ env.APP_NAME }}
-          
-          # Initialize environment if it doesn't exist
-          copilot env ls --app ${{ env.APP_NAME }} | grep -q "${{ env.ENV_NAME }}" || \
-            (copilot env init --name ${{ env.ENV_NAME }} --app ${{ env.APP_NAME }} --profile default --default-config && \
-             copilot env deploy --name ${{ env.ENV_NAME }} --app ${{ env.APP_NAME }})
-          
-          # Deploy service
-          copilot svc deploy --name ${{ env.SVC_NAME }} --env ${{ env.ENV_NAME }} --tag ${{ github.sha }}
+          # Create the application if it doesn't exist
+          if ! copilot app ls | grep -q "${APP_NAME}"; then
+            copilot app init "${APP_NAME}" --domain ""
+          fi
+
+          # Create environment if it doesn't exist
+          if ! copilot env ls --app "${APP_NAME}" | grep -q "${ENV_NAME}"; then
+            copilot env init --name "${ENV_NAME}" --app "${APP_NAME}" --region "${AWS_REGION}" --default-config
+            copilot env deploy --name "${ENV_NAME}" --app "${APP_NAME}"
+          fi
+
+          # Deploy the service
+          copilot svc deploy --name "${SVC_NAME}" --env "${ENV_NAME}" --tag "${GITHUB_SHA}"
       
       - name: Show service URL
         if: success()
         run: |
           echo "Service deployed successfully! Endpoint URL:"
-          copilot svc show --name ${{ env.SVC_NAME }} --app ${{ env.APP_NAME }} --env ${{ env.ENV_NAME }} --json | jq -r '.routes[0].url'
+          copilot svc show --name "${SVC_NAME}" --app "${APP_NAME}" --env "${ENV_NAME}" --json | jq -r '.routes[0].url'
